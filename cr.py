@@ -78,8 +78,36 @@ class System(object):
         s_free = df_parts[3].strip()
         print("%s\t%s\t%s\t%s" % (directory, fs, s_total, s_free))
 
-    def mount(self):
-        pass
+    def mount(self, accounts):
+        dirs = self._fill_secrets(accounts)
+        self._mount_parts(dirs)
+        self._make_raids(accounts, dirs)
+
+    def _make_raids(self, accounts, dirs):
+        for prov in accounts:
+            parts = [directory for (web_dav, directory) in dirs if web_dav == prov['web-dav']]
+            directory = System.RAID_DIR + '.' + prov
+            self._call(['mkdir', '-p', directory])
+            self._call(['mhddfs', ','.join(parts), directory, '-o', 'allow_other'])  # todo: remove allow_other?
+
+    def _mount_parts(self, dirs):
+        for (web_dav, directory) in dirs:
+            self._call(['mount', '-t', 'davfs', '-o', 'rw', web_dav, directory])
+
+    def _fill_secrets(self, accounts):
+        res_list = []
+        secrets_content = []
+        for prov in sorted(accounts.keys()):
+            for login in sorted(accounts[prov]['logins'].keys()):
+                directory = os.path.join(System.PARTS_DIR, prov + '.' + login)
+                secrets_content.append(' '.join([directory, login, accounts[prov]['logins'][login]]))
+                res_list.append((prov['web-dav'], directory))
+
+        with open('/etc/davfs2/secrets', 'w') as fds:
+            fds.writelines(secrets_content)
+            os.fchmod(fds, 0600)
+
+        return res_list
 
     def umount(self):
         pass
@@ -94,11 +122,16 @@ class User(object):
     def run(self):
         with open('cr.yml') as fds:
             self.config = yaml.load(fds)
+
         if self.options.status:
             print('status:')
             self.sys.check_dirs()
+        if self.options.mount:
+            print('mount:')
+            self.sys.mount(self.config['accounts'])
 
     def service_note(self):
+        # todo: write time into config
         pass
 
     def backup(self):
